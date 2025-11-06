@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
-import logoKiri from "../../assets/img/loginkiri.png";
+import logoKiri from "../../assets/img/logokiribaru.png";
 import logoKecil from "../../assets/img/loginkanan.png";
 import authService from "../../services/auth.service";
+import Loading from "@/components/Loading";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export default function Login() {
+  const { login } = useAuthStore();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingState, setLoadingState] = useState(false);
+  const [loadingText, setLoadingText] = useState("");
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -20,43 +24,50 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setIsLoading(true);
-
     try {
-      const response = await authService.login(formData.email, formData.password);
-      
+      setLoadingState(true);
+      setLoadingText("Login");
+      const response = await authService.login(
+        formData.email,
+        formData.password
+      );
+
       if (response.success) {
-        const role = response.data.role;
-        
-        // Redirect berdasarkan role
-        if (role === 'hr') {
-          navigate('/dashboard-hr');
-        } else if (role === 'manager') {
-          navigate('/dashboard-pm');
-        } else if (role === 'staff') {
-          navigate('/dashboard-staff');
-        } else {
-          // Fallback jika role tidak dikenali
-          navigate('/kanban');
-        }
+        const { token, role, id, name, email } = response.data;
+        console.log(name);
+        login(token, role, id, name, email);
+        navigate("/dashboard", { replace: true });
       }
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
-      console.error('Login error:', err);
+      setError(err.message || "Login failed. Please check your credentials.");
+      console.error("Login error:", err);
     } finally {
-      setIsLoading(false);
+      setLoadingText("");
+      setLoadingState(false);
     }
   };
 
   return (
     <div className="flex min-h-screen">
-      {/* Left Side - Logo Section */}
-      <div className="flex-1 overflow-hidden">
+      <Loading status={loadingState} fullscreen text={loadingText} />
+
+      {/* Left Side - Illustration + Text */}
+      <div className="flex-1 overflow-hidden bg-[#2C3F48] flex flex-col items-center justify-center px-8 relative">
         <img
           src={logoKiri}
-          alt="DevAlign Logo"
-          className="w-full h-screen object-cover"
+          alt="DevAlign Illustration"
+          className="w-[700px] h-[700px] object-contain opacity-90 mb-3"
         />
+
+        <div className="text-center -mt-4">
+          <h3 className="text-white text-2xl font-semibold leading-tight mb-2">
+            Empower Your Team with AI-Powered HRIS
+          </h3>
+          <p className="text-white/85 text-base max-w-md mx-auto">
+            Smart workforce analytics and intelligent project allocation,
+            aligning every employee with the right opportunity for impact.
+          </p>
+        </div>
       </div>
 
       {/* Right Side - Login Form */}
@@ -78,7 +89,10 @@ export default function Login() {
           </div>
 
           {/* Login Title */}
-          <h2 className="text-3xl font-semibold mb-8" style={{ color: "#2C3F48" }}>
+          <h2
+            className="text-3xl font-semibold mb-8"
+            style={{ color: "#2C3F48" }}
+          >
             Login
           </h2>
 
@@ -99,7 +113,7 @@ export default function Login() {
                 placeholder="Email"
                 value={formData.email}
                 onChange={handleChange}
-                disabled={isLoading}
+                disabled={loadingState}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
@@ -112,7 +126,7 @@ export default function Login() {
                 placeholder="Password"
                 value={formData.password}
                 onChange={handleChange}
-                disabled={isLoading}
+                disabled={loadingState}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
@@ -129,11 +143,11 @@ export default function Login() {
 
             <button
               onClick={handleSubmit}
-              disabled={isLoading}
-              className="w-full text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loadingState}
+              className="w-full text-white cursor-pointer font-medium py-3 px-4 rounded-lg transition-colors duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ backgroundColor: "#2C3F48" }}
             >
-              {isLoading ? 'Logging in...' : 'Login'}
+              {loadingState ? "Logging in..." : "Login"}
             </button>
           </div>
         </div>

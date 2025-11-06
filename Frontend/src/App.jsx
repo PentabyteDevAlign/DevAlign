@@ -1,112 +1,220 @@
 import {
-  BrowserRouter as Router,
-  Route,
-  Routes,
   Navigate,
+  Route,
+  BrowserRouter as Router,
+  Routes,
 } from "react-router-dom";
 
+// Components
+import CustomToaster from "@/components/CustomToaster";
+
 // Pages
-import Kanban from "@/pages/Kanban";
 import Login from "@/pages/auth/Login"; // pastikan path-nya sesuai
-import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "@/pages/auth/ResetPassword";
-import ManageEmployee from "@/pages/HR/ManageEmployee";
 import HRDashboard from "@/pages/HR/Dashboard";
-import PMDashboard from "./pages/PM/Dashboard";
-import StaffDashboard from "./pages/Staff/Dashboard";
+import ManageEmployee from "@/pages/HR/Employee/ManageEmployee";
+import Kanban from "@/pages/Kanban";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import AddEmployee from "./pages/HR/Employee/AddEmployee";
+import EmployeeDetail from "./pages/HR/Employee/EmployeeDetail";
 import CreateProject from "./pages/PM/CreateProject";
+import PMDashboard from "./pages/PM/Dashboard";
+import ListProjects from "./pages/PM/ListProject";
+import StaffDashboard from "./pages/Staff/Dashboard";
+import ProfilePage from "./pages/Profile";
+import ChangePasswordPage from "./pages/ChangePassword";
 
 // Layout
 import AppLayout from "@/components/layouts/AppLayout";
-import { useEffect, useState } from "react";
+
+import GuestRoute from "@/components/GuestRoute";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import { useAuthStore } from "@/store/useAuthStore";
+import ManagerTeam from "./pages/PM/ManagerTeam";
+import StaffTeam from "./pages/Staff/StaffTeam";
+import Inbox from "@/pages/Inbox";
+import SpecificRoleRoute from "./components/SpecificRoleRoute";
 
 function App() {
-  const [role, setRole] = useState("");
-  useEffect(() => {
-    setRole(localStorage.getItem("role"));
-  }, []);
+  const { token, role } = useAuthStore();
+
   return (
-    <Router>
-      <Routes>
-        {/* Halaman Login tanpa layout */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+    <>
+      <Router>
+        <Routes>
+          {/* Profile and Change Password */}
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/change-password"
+            element={
+              <ProtectedRoute>
+                <ChangePasswordPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Halaman Login tanpa layout */}
+          <Route
+            path="/login"
+            element={
+              <GuestRoute>
+                <Login />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestRoute>
+                <ForgotPassword />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              <GuestRoute>
+                <ResetPassword />
+              </GuestRoute>
+            }
+          />
 
-        {/* Halaman dengan layout utama */}
-        <Route
-          path="/kanban"
-          element={
-            <AppLayout>
-              <Kanban />
-            </AppLayout>
-          }
-        />
+          {/* Halaman dengan layout utama */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  {role == "hr" ? (
+                    <HRDashboard />
+                  ) : role == "manager" ? (
+                    <PMDashboard />
+                  ) : (
+                    <StaffDashboard />
+                  )}
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/dashboard-hr"
-          element={
-            <AppLayout>
-              {role == "hr" ? (
-                <HRDashboard />
-              ) : role == "manager" ? (
-                <PMDashboard />
-              ) : (
-                <Kanban />
-              )}
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/kanban/:projectId"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Kanban />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/employees"
-          element={
-            <AppLayout>
-              <ManageEmployee />
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/employees"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <ManageEmployee />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/employees/detail/:id"
-          element={
-            <AppLayout>
-              <EmployeeDetail />
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/employees/detail/:id"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <EmployeeDetail />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/addEmployee"
-          element={
-            <AppLayout>
-              <AddEmployee />
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/addEmployee"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AddEmployee />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/create-project"
-          element={
-            <AppLayout>
-              <CreateProject />
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/create-project"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <CreateProject />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/projects"
-          element={
-            <AppLayout>
-              <ListProjects />
-            </AppLayout>
-          }
-        />
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <ListProjects />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Redirect default ke /login */}
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </Router>
+          <Route
+            path="/team/reqapprove"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Inbox />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/team"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <SpecificRoleRoute requiredRole="staff">
+                    <StaffTeam />
+                  </SpecificRoleRoute>
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/team/management"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <SpecificRoleRoute requiredRole="manager">
+                    <ManagerTeam />
+                  </SpecificRoleRoute>
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Redirect default ke /login */}
+          <Route
+            path="*"
+            element={<Navigate to={token ? "/dashboard" : "/login"} replace />}
+          />
+        </Routes>
+      </Router>
+      <CustomToaster />
+    </>
   );
 }
 

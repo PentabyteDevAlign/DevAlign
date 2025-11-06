@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -18,6 +19,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -33,6 +43,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 
 //icon
@@ -44,46 +65,43 @@ import {
   Plus,
   FilePenLine,
   Sheet,
+  Download,
+  CircleCheckBig,
 } from "lucide-react";
 import api from "@/api/axios";
+import UploadFile from "@/components/UploadFile";
+import AddEmployee from "./AddEmployee";
+import { toast } from "@/lib/toast";
+import Loading from "@/components/Loading";
 
 export default function ManageEmployee() {
-  const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize] = useState(5);
+  const [total, setTotal] = useState(0);
+  const [pageIndex, setPageIndex] = useState(0); // 0-based
+  const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sorting, setSorting] = useState([]);
-  const [rowSelection, setRowSelection] = useState({});
+  const [positionFilter, setPositionFilter] = useState("all");
+
   const [employees, setEmployees] = useState([]);
+  const [openAddExcel, setOpenAddExcel] = useState(false);
+  const [excelFile, setExcelFile] = useState(null);
+
+  const [loading, setLoading] = useState(false);
+  const [loadingState, setLoadingState] = useState(false);
+  const [loadingText, setLoadingText] = useState("");
+  const [totalCount, setTotalCount] = useState(0);
+  const [newCount, setNewCount] = useState(0);
+  const [leavingCount, setLeavingCount] = useState(0);
+  const [positionsList, setPositionsList] = useState([]);
+  const [currentMonth] = useState(new Date().getMonth());
+
+  const [openConfirmation, setOpenConfirmation] = useState(false);
+  const [userToUpdate, setUserToUpdate] = useState();
 
   const navigate = useNavigate();
 
   const columns = [
-    {
-      accessorKey: "id",
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          className="cursor-pointer"
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          className="cursor-pointer"
-          aria-label="Select row"
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
     {
       accessorKey: "name",
       header: ({ column }) => (
@@ -135,90 +153,301 @@ export default function ManageEmployee() {
     {
       id: "actions",
       header: "Actions",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-8 w-8 p-0 cursor-pointer">
-              <Ellipsis className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="center">
-            <DropdownMenuItem
-              onClick={() => navigate(`detail/${row.original.id}`)}
-              className="cursor-pointer"
-            >
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => deativate(row.original.id)}
-              className="cursor-pointer"
-            >
-              Deactivate
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      cell: ({ row }) => {
+        const isActive = row.original.active;
+        console.log("Aktif ga: " + isActive);
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-8 w-8 p-0 cursor-pointer">
+                <Ellipsis className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center">
+              <DropdownMenuItem
+                onClick={() => navigate(`detail/${row.original.id}`)}
+                className="cursor-pointer"
+              >
+                Details
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setOpenConfirmation(true);
+                  setUserToUpdate({
+                    active: isActive,
+                    id: row.original.id,
+                  });
+                }}
+                className="cursor-pointer"
+              >
+                {isActive ? "Deactivate" : "Activate"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
     },
   ];
 
-  const getEmployees = async () => {
-    const { data } = await api.get("/hr/employees");
-    console.log(data);
-    setEmployees(data.data);
+  const getEmployeeStats = async () => {
+    setLoadingState(true);
+    setLoadingText("Fetch initial data...");
+    try {
+      // Get all employees without pagination for accurate statistics
+      const { data } = await api.get("/hr/employees", {
+        params: {
+          limit: 1000, // Large number to get all employees
+        },
+      });
+
+      const currentDate = new Date();
+      const firstDayOfMonth = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        1
+      );
+
+      // Calculate new and leaving employees for current month from complete data
+      const newEmployees = data.data.filter((emp) => {
+        if (!emp.createdAt) return false;
+        const joinDate = new Date(emp.createdAt);
+        return joinDate >= firstDayOfMonth;
+      });
+
+      const leavingEmployees = data.data.filter((emp) => {
+        if (emp.active) return false;
+        if (!emp.updatedAt) return false;
+        const leaveDate = new Date(emp.updatedAt);
+        return leaveDate >= firstDayOfMonth;
+      });
+
+      setTotalCount(data.meta.total);
+      setNewCount(newEmployees.length);
+      setLeavingCount(leavingEmployees.length);
+    } catch (error) {
+      console.warn("Error calculating employee stats:", error);
+      toast(error.response?.data?.message || "Failed to get employee status", {
+        type: "error",
+        position: "top-center",
+        duration: 4000,
+      });
+    } finally {
+      setLoadingState(false);
+      setLoadingText("");
+    }
   };
 
-  const deativate = async (id) => {
+  const getEmployees = async () => {
+    setLoadingState(true);
+    setLoadingText("Get employees...");
+    try {
+      setLoading(true);
+      const params = {
+        page: pageIndex + 1, // backend is 1-based
+        limit: pageSize,
+        search: globalFilter || undefined,
+        active: statusFilter === "all" ? undefined : statusFilter,
+        position:
+          positionFilter && positionFilter !== "all"
+            ? positionFilter
+            : undefined,
+      };
+
+      const { data } = await api.get("/hr/employees", { params });
+      setEmployees(data.data);
+      setTotal(data.meta.total);
+
+      // Update statistics separately to get accurate counts
+      // await getEmployeeStats();
+    } catch (error) {
+      console.error(error);
+      toast(error.response?.data?.message || "Failed to get employee status", {
+        type: "error",
+        position: "top-center",
+        duration: 4000,
+      });
+    } finally {
+      setLoadingState(false);
+      setLoadingText("");
+    }
+  };
+
+  const loadPositions = async () => {
+    setLoadingState(true);
+    setLoadingText("Get positions...");
+    try {
+      const projectService = await import("../../../services/project.service");
+      const res = await projectService.default.getAllPositions();
+      // res may be { perPage, total, positions } or array
+      let list = [];
+      if (Array.isArray(res)) list = res;
+      else if (res && res.positions) list = res.positions;
+      else if (res && res.data && res.data.positions) list = res.data.positions;
+      setPositionsList(list || []);
+    } catch (error) {
+      // fallback: ignore
+      console.warn("Failed to load positions", error);
+      setPositionsList([]);
+      toast(error.response?.data?.message || "Failed to get employee status", {
+        type: "error",
+        position: "top-center",
+        duration: 4000,
+      });
+    } finally {
+      setLoadingState(false);
+      setLoadingText("");
+    }
+  };
+
+  const getExcelTemplate = async () => {
+    const response = await api.get("/hr/employees/template", {
+      responseType: "blob",
+    });
+
+    console.log(response);
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+
+    // Set the file name dynamically
+    const fileName = "employee-import-template.xlsx";
+
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+
+    // Clean up
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const AddEmployeeByExcel = async () => {
+    setLoadingState(true);
+    setLoadingState("Adding Employee...");
+
+    if (!excelFile) {
+      alert("Please select a file first!");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", excelFile);
+
+    try {
+      const response = await api.post(
+        "/hr/employees/import?dryRun=false&sendEmails=false",
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
+
+      console.log("Import result:", response);
+      toast(
+        `Import completed! Created: ${response.data.created}, Failed: ${response.data.failed}`,
+        {
+          icon: <CircleCheckBig className="w-5 h-5 text-white" />,
+          type: "success",
+          position: "top-center",
+          duration: 5000,
+        }
+      );
+      setOpenAddExcel(false);
+    } catch (error) {
+      console.error("Failed to import employees:", error);
+      toast(error.response?.data?.message || "Failed to import employees", {
+        type: "error",
+        position: "top-center",
+        duration: 4000,
+      });
+    } finally {
+      getEmployees();
+      setLoadingState(true);
+      setLoadingText("");
+    }
+  };
+
+  const changeEmployeeStatus = async (id, isActive) => {
     console.log(id);
-    const { data } = await api.delete(`hr/employee/${id}`);
+    const { data } = await api.delete(`hr/employee/${id}?active=${isActive}`);
     console.log(data);
     getEmployees();
+    getEmployeeStats();
   };
 
-  // getEmployees();
-
-  const filteredData = useMemo(() => {
-    let filtered = employees;
-
-    if (globalFilter) {
-      filtered = filtered.filter((row) =>
-        row.name.toLowerCase().includes(globalFilter.toLowerCase())
-      );
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((row) => row.status === statusFilter);
-    }
-
-    return filtered;
-  }, [employees, globalFilter, statusFilter]);
-
   const table = useReactTable({
-    data: filteredData,
+    data: employees,
     columns,
-    state: { sorting, pagination: { pageIndex, pageSize }, rowSelection },
-    onSortingChange: setSorting,
-    onRowSelectionChange: setRowSelection,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    manualPagination: true, // ✅ important
+    manualSorting: true, // optional if backend handles sorting
+    manualFiltering: true,
+    pageCount: Math.ceil(total / pageSize),
+    state: {
+      pagination: { pageIndex, pageSize },
+      sorting,
+    },
     onPaginationChange: (updater) => {
       const newState =
         typeof updater === "function"
           ? updater({ pageIndex, pageSize })
           : updater;
       setPageIndex(newState.pageIndex);
+      setPageSize(newState.pageSize);
     },
-    pageCount: Math.ceil(filteredData.length / pageSize),
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   useEffect(() => {
+    // Get paginated data for table when page changes
     getEmployees();
+  }, [pageIndex, pageSize, globalFilter, statusFilter, positionFilter]);
+
+  useEffect(() => {
+    // load positions once
+    loadPositions();
+    getEmployeeStats();
   }, []);
 
   return (
     <>
+      <Loading status={loadingState} fullscreen text={loadingText} />
       <div>
+        {openConfirmation && (
+          <AlertDialog
+            open={openConfirmation}
+            onOpenChange={setOpenConfirmation}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {userToUpdate.active
+                    ? "Deactivate Employee"
+                    : "Activate Employee"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {userToUpdate.active
+                    ? "Are you sure you want to deactivate this employee?"
+                    : "Are you sure you want to activate this employee?"}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel className="cursor-pointer">
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() =>
+                    changeEmployeeStatus(userToUpdate.id, !userToUpdate.active)
+                  }
+                  className="cursor-pointer"
+                >
+                  Continue
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
         <div>
           <div className="flex justify-between">
             <h1 className="scroll-m-20  text-3xl font-extrabold tracking-tight text-balance">
@@ -240,8 +469,8 @@ export default function ManageEmployee() {
                     <FilePenLine /> Individual
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                  // onClick={() => alert(`Deleting ${row.original.name}`)}
-                  // className="cursor-pointer"
+                    onClick={() => setOpenAddExcel(true)}
+                    className="cursor-pointer"
                   >
                     <Sheet />
                     Multiple
@@ -256,30 +485,30 @@ export default function ManageEmployee() {
                 <Users />
                 <h3>Total Employees</h3>
               </div>
-              <p className="text-4xl font-extrabold">300</p>
-              <p className="text-slate-800">
+              <p className="text-4xl font-extrabold">{totalCount}</p>
+              {/* <p className="text-slate-800">
                 <span className=" text-green-500">+2</span> this month
-              </p>
+              </p> */}
             </div>
             <div className="space-y-2 text-center">
               <div className="flex justify-center space-x-2">
                 <UserPlus />
                 <h3>New Employee</h3>
               </div>
-              <p className="text-4xl font-extrabold">2</p>
-              <p className="text-slate-800">
-                <span className=" text-green-500">+2</span> this month
+              <p className="text-4xl font-extrabold text-green-600">
+                {newCount}
               </p>
+              <p className="text-slate-800">this month</p>
             </div>
             <div className="space-y-2 text-center">
               <div className="flex justify-center space-x-2">
                 <UserMinus />
                 <h3>Leaving</h3>
               </div>
-              <p className="text-4xl font-extrabold">0</p>
-              <p className="text-slate-800">
-                <span className=" text-red-500">0</span> this month
+              <p className="text-4xl font-extrabold text-red-500">
+                {leavingCount}
               </p>
+              <p className="text-slate-800">this month</p>
             </div>
           </div>
         </div>
@@ -296,23 +525,55 @@ export default function ManageEmployee() {
               className="w-full sm:w-1/3"
             />
 
-            <Select
-              value={statusFilter}
-              onValueChange={(val) => {
-                setStatusFilter(val);
-                setPageIndex(0);
-              }}
-            >
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="success">Success</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex gap-2">
+              <Select
+                value={statusFilter}
+                onValueChange={(val) => {
+                  setStatusFilter(val);
+                  setPageIndex(0);
+                }}
+                // className="cursor-pointer"
+              >
+                <SelectTrigger className="w-[150px] cursor-pointer">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="cursor-pointer">
+                    All
+                  </SelectItem>
+                  <SelectItem value="true" className="cursor-pointer">
+                    Active
+                  </SelectItem>
+                  <SelectItem value="false" className="cursor-pointer">
+                    Resigned
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={positionFilter}
+                onValueChange={(val) => {
+                  setPositionFilter(val);
+                }}
+              >
+                <SelectTrigger className="w-[200px] cursor-pointer">
+                  <SelectValue placeholder="Filter by position" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="cursor-pointer">
+                    All Positions
+                  </SelectItem>
+                  {positionsList.map((p) => (
+                    <SelectItem
+                      key={p._id || p.id || p.name}
+                      value={String(p._id || p.id || p.name)}
+                    >
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Table */}
@@ -323,12 +584,10 @@ export default function ManageEmployee() {
                   <TableRow key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <TableHead key={header.id}>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
                       </TableHead>
                     ))}
                   </TableRow>
@@ -336,7 +595,13 @@ export default function ManageEmployee() {
               </TableHeader>
 
               <TableBody>
-                {table.getRowModel().rows.length ? (
+                {employees.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="text-center">
+                      No data
+                    </TableCell>
+                  </TableRow>
+                ) : (
                   table.getRowModel().rows.map((row) => (
                     <TableRow key={row.id}>
                       {row.getVisibleCells().map((cell) => (
@@ -344,49 +609,100 @@ export default function ManageEmployee() {
                           {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext()
-                          ) || cell.getValue()}
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>
                   ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className="h-24 text-center"
-                    >
-                      No results.
-                    </TableCell>
-                  </TableRow>
                 )}
               </TableBody>
             </Table>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-end space-x-2 py-2 mr-5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
-              >
-                Previous
-              </Button>
-              <span className="text-sm">
-                Page {pageIndex + 1} of {table.getPageCount() || 1}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
-              >
-                Next
-              </Button>
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between p-5">
+              <div className="text-sm text-muted-foreground">
+                Page {pageIndex + 1} of {Math.ceil(total / pageSize)}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPageIndex((p) => Math.max(p - 1, 0))}
+                  disabled={pageIndex === 0}
+                  className="cursor-pointer"
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setPageIndex((p) =>
+                      p + 1 < Math.ceil(total / pageSize) ? p + 1 : p
+                    )
+                  }
+                  disabled={pageIndex + 1 >= Math.ceil(total / pageSize)}
+                  className="cursor-pointer"
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={openAddExcel}
+        onOpenChange={(isOpen) => {
+          setOpenAddExcel(isOpen);
+
+          if (!isOpen) {
+            setExcelFile(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex justify-between items-center">
+              Add Multiple Employee
+            </DialogTitle>
+            <DialogDescription>
+              Please make sure each Excel file contains employees with the same
+              role only.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Button
+              onClick={getExcelTemplate}
+              className="w-full sm:w-auto bg-primer cursor-pointer text-white font-semibold px-6 py-3 rounded-lg transition-all duration-200 disabled:opacity-70"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download Template
+            </Button>
+
+            <UploadFile
+              label="Upload document"
+              iconType="file"
+              accept=".xlsx"
+              onFileSelect={(file) => setExcelFile(file)}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" className="cursor-pointer">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              onClick={AddEmployeeByExcel}
+              className="bg-primer cursor-pointer"
+            >
+              Add Employee
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
