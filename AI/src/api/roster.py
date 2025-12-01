@@ -7,7 +7,7 @@ from src.models.roster import RosterRecommendationsResponse
 
 from src.configs.mongodb import get_database
 from src.config import settings
-from src.agents.agent import configure_llm_roster
+from src.agents.agent import configure_llm, generate_embedding
 from src.agents.recommendation_agent.model import RecommendationModel, ClassifySkillModel
 
 from bson import ObjectId
@@ -38,12 +38,6 @@ router = APIRouter()
 async def create_project_embeddings(request: EmbeddingProjectRequest):
     print(request.project_id)
     database = get_database()
-
-    embedder = dspy.Embedder(
-      model=settings.EMBEDDING_MODEL, 
-      api_base=settings.EMBEDDING_MODEL_BASE_URL,
-      api_key=settings.LLM_API_KEY
-    )
 
     # Ngambil deskripsi task tiap2 user
     pipeline = [
@@ -135,7 +129,7 @@ async def create_project_embeddings(request: EmbeddingProjectRequest):
         combinedTask = ", ".join(user["tasks"])
 
         try:
-            embeddings = embedder(combinedTask)
+            embeddings = generate_embedding(combinedTask)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Embedding generation failed: {e}")
 
@@ -177,7 +171,7 @@ def get_recommendations(request: SkillRequest):
     required_skills = request.skills
 
     start_time = time.time()
-    configure_llm_roster()
+    configure_llm()
     skill_classifier = dspy.Predict(ClassifySkillModel)
     position_with_skills = skill_classifier(
         positions=[position.name for position in required_positions],
@@ -253,13 +247,13 @@ def get_recommendations(request: SkillRequest):
 
         # 3. Embedding vector
         start_time = time.time()
-        embedder = dspy.Embedder(
-            model=settings.EMBEDDING_MODEL, 
-            api_base=settings.EMBEDDING_MODEL_BASE_URL,
-            api_key=settings.LLM_API_KEY
-        )
+        # embedder = dspy.Embedder(
+        #     model=f"gemini/{settings.EMBEDDING_MODEL}", 
+        #     api_key=settings.LLM_API_KEY
+        # )
 
-        embeddings = embedder(project_description)
+        embeddings = generate_embedding(project_description)
+        print(embeddings)
 
         # NOTE: projectembeddings stores task title, jadi nanti yang masuk database, deskripsinya itu joinan dari task title
         embeddings_collection = database.get_collection("projectembeddings")
@@ -331,7 +325,7 @@ def get_recommendations(request: SkillRequest):
 
     # 6. let the AI rerank the recommendations
     start_time = time.time()
-    configure_llm_roster()
+    configure_llm()
     reranker = dspy.Predict(RecommendationModel)
 
     for position, candidates in top_candidates.items():
