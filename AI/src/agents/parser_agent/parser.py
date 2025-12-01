@@ -9,7 +9,7 @@ class CVParserAgent(dspy.Module):
         super().__init__()
         self.generate = dspy.ChainOfThought(CVStructuredModel)
     
-    @retry_on_error(max_retries=3, delay=1)
+    @retry_on_error(max_retries=1, delay=1)
     def forward(self, cv_text: str) -> Dict[str, Any]:
         try:
             prediction = self.generate(cv_text=cv_text)
